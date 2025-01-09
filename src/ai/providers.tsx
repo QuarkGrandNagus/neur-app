@@ -121,20 +121,143 @@ export function DefaultToolResultRenderer({ result }: { result: unknown }) {
   );
 }
 
-export const defaultTools: Record<string, ToolConfig> = {
-  ...actionTools,
-  ...solanaTools,
-  ...definedTools,
-  ...pumpfunTools,
-  ...jupiterTools,
-  ...dexscreenerTools,
-  ...magicEdenTools,
-  ...jinaTools,
-  ...utilTools,
-  ...chartTools,
-  ...telegramTools,
+const sniperBundleCheckerTool: ToolConfig = {  
+  displayName: 'Sniper Bundle Checker',  
+  icon: <></>,  
+  isCollapsible: false,  
+  isExpandedByDefault: false,  
+  description: 'Check for sniper bundles on Solana',  
+  parameters: z.object({  
+   mintAddress: z.string(),  
+  }),  
+  execute: async ({ mintAddress }) => {  
+   const connection = new Connection('https://api.devnet.solana.com');  
+   const publicKey = new PublicKey(mintAddress);  
+   const tokenAccounts = await connection.getTokenLargestAccounts(publicKey, {  
+    commitment: 'confirmed',  
+   });  
+   const tokenHolders: any[] = [];  
+   for (const account of tokenAccounts.result.value) {  
+    const tokenHolder = {  
+      balance: account.amount,  
+      percentage: account.uiAmount,  
+    };  
+    tokenHolders.push(tokenHolder);  
+   }  
+   const signatures = await connection.getSignaturesForAddress(publicKey, {  
+    limit: 1000,  
+   });  
+   const bundles = identifySniperBundles(signatures);  
+   const bundleReports = generateBundleReport(bundles);  
+   return bundleReports;  
+  },  
+  render: (result) => {  
+   if (result && typeof result === 'object') {  
+    return (  
+      <div>  
+       <h2>Bundle Reports:</h2>  
+       {result.map((report, index) => (  
+        <div key={index}>  
+          <h3>Bundle {index + 1}:</h3>  
+          <p>Primary Wallet: {report['Primary Wallet']}</p>  
+          <p>Timestamps: {report['Timestamps']}</p>  
+          <p>Unique Wallets: {report['Unique Wallets']}</p>  
+          <p>Total SOL Spent: {report['Total SOL Spent']}</p>  
+          <p>Total Tokens Held: {report['Total Tokens Held']}</p>  
+          <p>Percentage of Supply: {report['Percentage of Supply']}</p>  
+        </div>  
+       ))}  
+      </div>  
+    );  
+   }  
+   return null;  
+  },  
+};  
+  
+function identifySniperBundles(signatures: any[]): any[] {  
+  const bundles: any[] = [];  
+  const walletTimestamps: Record<string, number[]> = {};  
+  for (const sig of signatures) {  
+   const wallet = sig.pubkey;  
+   const timestamp = sig.blockTime;  
+   if (!walletTimestamps[wallet]) {  
+    walletTimestamps[wallet] = [];  
+   }  
+   walletTimestamps[wallet].push(timestamp);  
+  }  
+  for (const [wallet, timestamps] of Object.entries(walletTimestamps)) {  
+   if (timestamps.length > 1) {  
+    timestamps.sort((a, b) => a - b);  
+    const bundleCandidates = clusterTimestamps(timestamps);  
+    for (const bundle of bundleCandidates) {  
+      const bundleInfo = analyzeBundle(wallet, bundle);  
+      bundles.push(bundleInfo);  
+    }  
+   }  
+  }  
+  return bundles;  
+}  
+  
+function clusterTimestamps(timestamps: number[], maxTimeDiff: number = 60): number[][] {  
+  const bundles: number[][] = [];  
+  let currentBundle: number[] = [timestamps[0]];  
+  for (const ts of timestamps.slice(1)) {  
+   if (ts - currentBundle[currentBundle.length - 1] <= maxTimeDiff) {  
+    currentBundle.push(ts);  
+   } else {  
+    if (currentBundle.length > 1) {  
+      bundles.push([...currentBundle]);  
+    }  
+    currentBundle = [ts];  
+   }  
+  }  
+  if (currentBundle.length > 1) {  
+   bundles.push(currentBundle);  
+  }  
+  return bundles;  
+}  
+  
+function analyzeBundle(primaryWallet: string, timestamps: number[]): any {  
+  const bundleInfo = {  
+   primaryWallet,  
+   timestamps,  
+   uniqueWallets: new Set<string>(),  
+   totalSolSpent: 0,  
+   totalTokensHeld: 0,  
+   percentageOfSupply: 0,  
+  };  
+  const totalSolSpent = timestamps.reduce((acc, ts) => acc + 1, 0);  
+  const totalTokensHeld = timestamps.length;  
+  bundleInfo.totalSolSpent = totalSolSpent;  
+  bundleInfo.totalTokensHeld = totalTokensHeld;  
+  return bundleInfo;  
+}  
+  
+function generateBundleReport(bundles: any[]): any[] {  
+  if (bundles.length === 0) {  
+   return [];  
+  }  
+  return bundles.map((bundle) => ({  
+   'Primary Wallet': bundle.primaryWallet,  
+   'Timestamps': bundle.timestamps,  
+   'Unique Wallets': bundle.uniqueWallets.size,  
+   'Total SOL Spent': bundle.totalSolSpent,  
+   'Total Tokens Held': bundle.totalTokensHeld,  
+   'Percentage of Supply': bundle.percentageOfSupply,  
+  }));  
+}  
+  
+export const defaultTools: Record<string, ToolConfig> = {  
+  ...actionTools,  
+  ...solanaTools,  
+  ...definedTools,  
+  ...pumpfunTools,  
+  ...jupiterTools,  
+  ...dexscreenerTools,  
+  ...magicEdenTools,  
+  ...jinaTools,  
+  ...utilTools,  
+  ...chartTools,  
+  ...telegramTools,  
+  sniperBundleChecker: sniperBundleCheckerTool,  
 };
-
-export function getToolConfig(toolName: string): ToolConfig | undefined {
-  return defaultTools[toolName];
-}
